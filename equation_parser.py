@@ -44,6 +44,7 @@ def string_to_equation(equation_string: str) -> Equation:
     find_coeff_parts_re = re.compile(r"[^\^x]\s?[+-]?\s?[^\^]\d+j?(?:(?:\[\d+\])(?:\^\d+)?)?")
     parse_coeff_part_re = re.compile(r"(?P<constant>[+-]?\d+j?)?(?:\[(?P<index>\d+)\])?(?:\^(?P<power>\d+))?$")
 
+    # TODO: make this a dictionary?
     equation = Equation(terms=[])
 
     for term_str in all_term_str:

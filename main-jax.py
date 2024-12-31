@@ -40,25 +40,25 @@ def jax_polyroots(x):
 
 def roots_one_frame(
     coefficients: jax.Array,
-    coefficient_overrides_index: Sequence[int],
-    coefficient_varying_index: int,
-    coefficient_varying: jax.Array,
-    *coefficient_overrides: Sequence[jax.Array],
+    fixed_coefficients: jax.Array,
+    varying_coefficients: jax.Array,
 ):
-    assert coefficient_overrides_index is not None, "specify the coefficient index to override"
-    assert coefficient_varying_index is not None, "specify the coefficient index to vary"
+    flat_varying = {k: v.astype(jnp.complex64) for k, v in varying_coefficients.items() if v.ndim == 0}
+    for i in flat_varying:
+        del varying_coefficients[i]
 
-    coefficients = coefficients.at[coefficient_varying_index].set(coefficient_varying)
+    coefficient_overrides = fixed_coefficients | varying_coefficients
 
-    # TODO: try vmap instead?
+    for k, v in flat_varying.items():
+        coefficients = coefficients.at[k].set(v)
+
     def scan_fn(carry, xs):
         coefficients = carry
-        coefficient_overrides = xs
+        coeff_overrides = xs
 
-        for override_index, coefficient_index in enumerate(coefficient_overrides_index):
-            coefficients = coefficients.at[coefficient_index].set(coefficient_overrides[override_index])
+        for k, v in coeff_overrides.items():
+            coefficients = coefficients.at[k].set(v)
 
-        # roots = jnp.roots(coefficients, strip_zeros=False).astype(jnp.complex64)
         roots = jax_polyroots(coefficients).astype(jnp.complex64)
         roots = jnp.reshape(roots, (-1,))
         roots = jnp.nan_to_num(roots, copy=False, nan=0.0)
@@ -98,6 +98,7 @@ def main(
     args: argparse.Namespace,
 ):
     equation = string_to_equation(args.equation)
+    print("\n".join(map(str, equation.terms)))
 
     devices = jax.devices("cpu")
     n_devices = len(devices)
@@ -106,21 +107,20 @@ def main(
 
     # degree = 11
     # TODO: can probably alloc this inside the jit function rather than outside
-    # TODO: integrate equation parser
     degree = max([t.degree for t in equation.terms])
     coefficients = np.zeros((degree + 1,), dtype=np.complex64)
 
     rng = np.random.default_rng(args.seed)
-    ts = {i: rng.random(args.N) * 2 * math.pi for i in args.fixed_indices}
+    ts = {i: complex_at_angle(rng.random(args.N) * 2 * math.pi) for i in args.fixed_indices}
     fixed_coeffs = {}
     partial_varying_coeffs = {}
     for term in equation.terms:
         if all([t.t is None for t in term.coefficient_parts]):
             # if term has a constant coefficient
             coefficients[term.degree] = term.coefficient_parts[0].constant
-        elif all([t.t[0] in args.fixed_indices for t in term.coefficient_parts]):
+        elif all([t.t is None or t.t[0] in args.fixed_indices for t in term.coefficient_parts]):
             # if term has all fixed indices, they can be precomputed
-            fixed_coeffs[term.degree] = 0  # np.zeros((args.N,), dtype=np.complex64)
+            fixed_coeffs[term.degree] = np.zeros((args.N,), dtype=np.complex64)
             for coeff_part in term.coefficient_parts:
                 if coeff_part.t is not None:
                     fixed_coeffs[term.degree] += coeff_part.constant * ts[coeff_part.t[0]] ** coeff_part.t[1]
@@ -132,37 +132,28 @@ def main(
             partial_varying_coeffs[term.degree] = 0  # np.zeros((args.N,), dtype=np.complex64)
             for coeff_part in term.coefficient_parts:
                 if coeff_part.t is not None and coeff_part.t[0] in args.fixed_indices:
-                    partial_varying_coeffs[term.degree] += coeff_part.constant * ts[coeff_part.t[0]] ** coeff_part.t[1]
+                    partial_varying_coeffs[term.degree] += coeff_part.constant * (
+                        ts[coeff_part.t[0]] ** coeff_part.t[1]
+                    )
                 else:
                     partial_varying_coeffs[term.degree] += coeff_part.constant
 
-    # coefficients[11] = 1
-    # coefficients[10] = -1
-
-    # t1s = rng.random(args.N) * 2 * math.pi
-    # t2s = rng.random(args.N) * 2 * math.pi
-
-    # # project timesteps on unit circle
-    # t1s = complex_at_angle(t1s)
-    # t2s = complex_at_angle(t2s)
-
-    # coeffs1 = 30j * t1s * t1s - 30 * t1s - 30
-    # coeffs2 = 30j * t2s * t2s + 30j * t2s - 30
-
-    # coeffs1 = jnp.asarray(coeffs1)
-    # coeffs2 = jnp.asarray(coeffs2)
-
     coefficients = jnp.asarray(coefficients)
-    fixed_coeffs = jax.tree_util.tree_map(jnp.asarray, fixed_coeffs)
-    partial_varying_coeffs = jax.tree_util.tree_map(jnp.asarray, partial_varying_coeffs)
+    fixed_coeffs = jax.tree_util.tree_map(lambda x: jnp.asarray(x, dtype=jnp.complex64), fixed_coeffs)
 
     jit_roots_to_histogram = jax.jit(roots_to_histogram, static_argnums=(2,), backend="cpu")
 
-    in_specs = (
-        *[None] * 4,
-        P("data"),
-        P("data"),
-    )
+    varying_in_specs = {
+        i: P()
+        if isinstance(v, complex)
+        else P(
+            "data",
+        )
+        for i, v in partial_varying_coeffs.items()
+    }
+
+    in_specs = (None, P("data"), varying_in_specs)
+
     shmap_roots_one_frame = shard_map(
         roots_one_frame,
         mesh=mesh,
@@ -176,7 +167,22 @@ def main(
     for fi in tqdm.tqdm(range(n_frames)):
         tv = complex_at_angle(2 * math.pi * (fi / n_frames))
 
-        coeff_varying = -30 * (tv**5) - 30j * (tv**3) + 30j * (tv * tv) - 30j * tv + 30
+        def _resolve_partial_varying(degree, v, ts):
+            v = np.copy(v)
+            for term in equation.terms:
+                if term.degree == degree:
+                    for coeff_part in term.coefficient_parts:
+                        if coeff_part.t is not None and coeff_part.t[0] in args.varying_indices:
+                            v += coeff_part.constant * (ts ** coeff_part.t[1])
+
+                    return v
+            else:
+                raise ValueError("didn't find degree")
+
+        varying_coeffs = {
+            i: jnp.asarray(_resolve_partial_varying(i, v, tv), dtype=jnp.complex64)
+            for i, v in partial_varying_coeffs.items()
+        }
 
         # cool settings
         # original (8, 5) 6
@@ -185,11 +191,13 @@ def main(
         # (8, 2) 4
         roots = shmap_roots_one_frame(
             coefficients,
-            (args.coeff1_index, args.coeff2_index),
-            args.coeff_varying_index,
-            coeff_varying,
-            coeffs1,
-            coeffs2,
+            fixed_coeffs,
+            varying_coeffs,
+            # (args.coeff1_index, args.coeff2_index),
+            # args.coeff_varying_index,
+            # coeff_varying,
+            # coeffs1,
+            # coeffs2,
         )
 
         # TODO: we filter out zeros outside jit, is there a way to do this inside?
@@ -248,8 +256,8 @@ def main(
 def get_default_equation(args):
     if args.equation is None:
         args.equation = "x^11 - x^10 + (30j[0]^2 -30[0] - 30) x^8 + (-30[1]^5 - 30j[1]^3 + 30j[1]^2 - 30j[1] + 30) x^6 + (30j[2]^2 + 30j[2] - 30) x^5"
-        args.varying_indices = [0, 2]
-        args.fixed_indices = [1]
+        args.fixed_indices = [0, 2]
+        args.varying_indices = [1]
 
     return args
 
