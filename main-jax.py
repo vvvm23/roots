@@ -1,6 +1,9 @@
 import os
-os.environ["XLA_FLAGS"] = '--xla_force_host_platform_device_count=8'
+os.environ["XLA_FLAGS"] = '--xla_force_host_platform_device_count=100'
+import scipy.ndimage
 
+import scipy
+from jax.experimental.shard_map import shard_map
 import jax
 import tqdm
 import time
@@ -9,6 +12,7 @@ import matplotlib.animation as animation
 from functools import partial
 import jax.numpy as jnp
 import jax.random as jr
+from jax.sharding import PartitionSpec as P
 import math
 
 import matplotlib.pyplot as plt
@@ -21,7 +25,6 @@ jax.config.update("jax_enable_x64", True)
 jax.config.update("jax_compilation_cache_dir", "/tmp/jax_cache")
 jax.config.update("jax_persistent_cache_min_entry_size_bytes", -1)
 jax.config.update("jax_persistent_cache_min_compile_time_secs", 0)
-os.environ["XLA_FLAGS"] = '--xla_force_host_platform_device_count=8'
 
 def complex_at_angle(x):
     if isinstance(x, np.ndarray):
@@ -126,11 +129,14 @@ def roots_to_histogram(
 
 def main(
     degree: int = 11,
-    N: int = 200*200,
-    length: float = 5.0,
-    framerate: int = 24
+    N: int = 300*300,
+    length: float = 2.5,
+    framerate: int = 60
     # TODO: string for passing in the coefficients and such
 ):
+    devices = jax.devices('cpu')
+    n_devices = len(devices)
+    mesh = jax.make_mesh((n_devices,), ('data',))
     n_frames = int(length*framerate)
 
     sqrt_N = int(math.sqrt(N))
@@ -155,7 +161,15 @@ def main(
     coeffs8 = 30j * t1s * t1s - 30 * t1s - 30
     coeffs5 = 30j * t2s * t2s + 30j * t2s - 30
 
-    jit_roots_one_frame = jax.jit(roots_one_frame, backend='cpu', static_argnums=(1, 2))
+    coeffs8 = jnp.asarray(coeffs8)
+    coeffs5 = jnp.asarray(coeffs5)
+
+    coefficients = jnp.asarray(coefficients)
+
+    # coeffs8 = jax.device_put(coeffs8, sharding)
+    # coeffs5 = jax.device_put(coeffs5, sharding)
+
+    # jit_roots_one_frame = jax.jit(roots_one_frame, static_argnums=(1, 2))
     # print(jax.devices('cpu'))
     # jit_roots_one_frame = jax.pmap(
     #     roots_one_frame,
@@ -164,6 +178,16 @@ def main(
     #     out_axes=0
     # )
     jit_roots_to_histogram = jax.jit(roots_to_histogram, static_argnums=(2,), backend='cpu')
+
+    shmap_roots_one_frame = shard_map(
+        roots_one_frame,
+        mesh=mesh,
+        in_specs=(
+            None, None, None, None,
+            P('data',), P('data',)
+        ),
+        out_specs=P('data')
+    )
 
     start_time = time.time()
 
@@ -178,10 +202,11 @@ def main(
         # (8, 2) 6
         # (8, 2) 7
         # (8, 2) 4
-        roots = jit_roots_one_frame(
+        # roots = jit_roots_one_frame(
+        roots = shmap_roots_one_frame(
             coefficients, 
-            (4, 5),
-            9,
+            (6, 4),
+            7,
             coeff6, 
             coeffs8, 
             coeffs5, 
@@ -229,10 +254,8 @@ def main(
     x_min, x_max = np.min([np.min(roots.real) for roots in frame_roots]), np.max([np.max(roots.real) for roots in frame_roots])
     y_min, y_max = np.min([np.min(roots.imag) for roots in frame_roots]), np.max([np.max(roots.imag) for roots in frame_roots])
 
-    # x_min, x_max = np.min([roots.real for roots in frame_roots]), np.max([roots.real for roots in frame_roots])
-    # y_min, y_max = np.min([roots.imag for roots in frame_roots]), np.max([roots.imag for roots in frame_roots])
-
     
+    # TODO: shardmap this too
     start_time = time.time()
     for roots in tqdm.tqdm(frame_roots):
         hist = jit_roots_to_histogram(
@@ -246,6 +269,16 @@ def main(
 
     hists = np.array(hists)
 
+    hists = scipy.ndimage.maximum_filter(
+        hists,
+        size=(1, 3, 3)
+    )
+
+    # hists = scipy.ndimage.gaussian_filter(
+    #     hists,
+    #     sigma=(0, 1, 1)
+    # )
+
     end_time = time.time()
     print(f'Took {end_time - start_time} seconds to generate all histograms')
     
@@ -253,13 +286,15 @@ def main(
     fig.subplots_adjust(left=0, bottom=0, right=1, top=1, wspace=None, hspace=None)
     fig.set_size_inches(4, 4, True)
     ax.set_axis_off()
-    im = plt.imshow(hists[0], cmap='gray', origin='lower')
+    im = plt.imshow(hists[0], cmap='hot', origin='lower')
 
     def animate(i):
         im.set_data(hists[i])
 
     anim = animation.FuncAnimation(fig, animate, frames=len(hists), interval=int(1000 / framerate), blit=False)
-    anim.save('animation.gif', dpi=300)
+    FFwriter = animation.FFMpegWriter(fps=framerate)
+    anim.save('animation.mp4', writer = FFwriter)
+    # anim.save('animation.gif', dpi=300)
     # plt.show()
 
 
