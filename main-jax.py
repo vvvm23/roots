@@ -2,12 +2,9 @@ import argparse
 import math
 import os
 import time
-from functools import partial
-from typing import Sequence
 
 import jax
 import jax.numpy as jnp
-import jax.random as jr
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
@@ -29,7 +26,7 @@ def complex_at_angle(x):
     return math.cos(x) + 1j * math.sin(x)
 
 
-# TODO: can this be... faster?
+# TODO: can this be... faster? and on gpu perhaps
 def jax_polyroots(x):
     n = len(x) - 1
     mat = jnp.diag(jnp.ones((n - 1,), dtype=x.dtype), k=-1)
@@ -88,7 +85,7 @@ def roots_to_histogram(
                 jnp.linspace(y_min, y_max, bins + 1),
             ),
             range=jnp.array([[x_min, x_max], [y_min, y_max]]),
-            density=False,
+            density=True,
         )[0]
 
     return histogram_fn(roots_real, roots_imag)
@@ -105,7 +102,6 @@ def main(
     mesh = jax.make_mesh((n_devices,), ("data",))
     n_frames = int(args.length * args.framerate)
 
-    # degree = 11
     # TODO: can probably alloc this inside the jit function rather than outside
     degree = max([t.degree for t in equation.terms])
     coefficients = np.zeros((degree + 1,), dtype=np.complex64)
@@ -193,11 +189,6 @@ def main(
             coefficients,
             fixed_coeffs,
             varying_coeffs,
-            # (args.coeff1_index, args.coeff2_index),
-            # args.coeff_varying_index,
-            # coeff_varying,
-            # coeffs1,
-            # coeffs2,
         )
 
         # TODO: we filter out zeros outside jit, is there a way to do this inside?
@@ -235,6 +226,9 @@ def main(
 
     hists = np.array(hists)
 
+    upweight = 2.0
+    threshold = 0.5
+    hists *= np.maximum(0.0, upweight - upweight * hists / threshold) + 1
     hists = scipy.ndimage.maximum_filter(hists, size=(1, args.max_filter_size, args.max_filter_size))
     end_time = time.time()
     print(f"Took {end_time - start_time} seconds to generate all histograms")
@@ -271,31 +265,12 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=0xC0FFEE, help="random seed")
     parser.add_argument("--output-path", type=str, default="animation.mp4", help="output path")
     parser.add_argument("--disable-cache", action="store_true", help="disable compilation cache")
-    # parser.add_argument("--coeff1-index", type=int, default=8)
-    # parser.add_argument("--coeff2-index", type=int, default=5)
-    # parser.add_argument("--coeff-varying-index", type=int, default=6)
     parser.add_argument("--equation", type=str, default=None)  # set to default outside parser, as it is long
     parser.add_argument("--varying-indices", nargs="+", type=int, default=None)
     parser.add_argument("--fixed-indices", nargs="*", type=int, default=None)
     parser.add_argument("--hist-bins", type=int, default=1000)
     parser.add_argument("--max-filter-size", type=int, default=3)
     parser.add_argument("--colourmap", type=str, default="gray")
-    # TODO: add way to serialize the polynomial so we don't have to hardcode one
-    """
-    kinda like
-    \[
-        x^11
-        - x^10
-        + (30j[0]^2 -30[0] - 30) x^8
-        + (-30[1]^5 - 30j[1]^3 + 30j[1]^2 - 30j[1] + 30) x^6
-        + (30j[2]^2 + 30j[2] - 30) x^5
-    \]
-
-    where x is the roots
-    [a] is the ath coefficient, specified by coeff-index or varying-coeff-index
-    j is sqrt(-1)
-
-    """
     args = parser.parse_args()
     args = get_default_equation(args)
 

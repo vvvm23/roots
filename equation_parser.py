@@ -41,8 +41,8 @@ def string_to_equation(equation_string: str) -> Equation:
 
     # TODO: can we simplify these regexes? I am a noob
     find_degree_re = re.compile(r"(\s?[-+]?\s?)x\^(?P<degree>\d+)")
-    find_coeff_parts_re = re.compile(r"[^\^x]\s?[+-]?\s?[^\^]\d+j?(?:(?:\[\d+\])(?:\^\d+)?)?")
-    parse_coeff_part_re = re.compile(r"(?P<constant>[+-]?\d+j?)?(?:\[(?P<index>\d+)\])?(?:\^(?P<power>\d+))?$")
+    find_coeff_parts_re = re.compile(r"[^\^x]\s?[+-]?\s?[^\^]\d+\.?\d*j?(?:(?:\[\d+\])(?:\^\d+)?)?")
+    parse_coeff_part_re = re.compile(r"(?P<constant>[+-]?\d+\.?\d*j?)?(?:\[(?P<index>\d+)\])?(?:\^(?P<power>\d+))?$")
 
     # TODO: make this a dictionary?
     equation = Equation(terms=[])
@@ -81,6 +81,7 @@ def string_to_equation(equation_string: str) -> Equation:
 
 if __name__ == "__main__":
     equation_string = "x^11 - x^10 + (30j[0]^2 -30[0] - 30) x^8 + (-30[1]^5 - 30j[1]^3 + 30j[1]^2 - 30j[1] + 30) x^6 + (30j[2]^2 + 30j[2] - 30) x^5"
+    equation_string = "x^19 - (0.1) x^17 + (10j[0]^6 - 10j[0]^5 + 10j[0]^4 - 10j[0]^3 - 10[0]^2 + 10j[0] - 10) x^6 + (10[2]^6 + 10[2]^5 - 10[2]^4 - 10[2]^3 + 10j[2]^2 + 10j[2] + 10) x^2 + (10j[1] - 10) x^0"
     print(equation_string)
     print()
     equation = string_to_equation(equation_string)
