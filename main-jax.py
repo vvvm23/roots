@@ -17,6 +17,8 @@ import tqdm
 from jax.experimental.shard_map import shard_map
 from jax.sharding import PartitionSpec as P
 
+from equation_parser import string_to_equation
+
 
 def complex_at_angle(x):
     if isinstance(x, np.ndarray):
@@ -101,6 +103,8 @@ def main(
     n_frames = int(args.length * args.framerate)
 
     degree = 11
+    # TODO: can probably alloc this inside the jit function rather than outside
+    # TODO: integrate equation parser
     coefficients = np.zeros((degree + 1,), dtype=np.complex64)
     coefficients[11] = 1
     coefficients[10] = -1
@@ -210,6 +214,15 @@ def main(
     anim.save(args.output_path, writer=FFwriter)
 
 
+def get_default_equation(args):
+    if args.equation is None:
+        args.equation = "x^11 - x^10 + (30j[0]^2 -30[0] - 30) x^8 + (-30[1]^5 - 30j[1]^3 + 30j[1]^2 - 30j[1] + 30) x^6 + (30j[2]^2 + 30j[2] - 30) x^5"
+        args.varying_indices = [0, 2]
+        args.fixed_indices = [1]
+
+    return args
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("-N", type=int, default=100000, help="number of particles")
@@ -219,9 +232,12 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=0xC0FFEE, help="random seed")
     parser.add_argument("--output-path", type=str, default="animation.mp4", help="output path")
     parser.add_argument("--disable-cache", action="store_true", help="disable compilation cache")
-    parser.add_argument("--coeff1-index", type=int, default=8)
-    parser.add_argument("--coeff2-index", type=int, default=5)
-    parser.add_argument("--coeff-varying-index", type=int, default=6)
+    # parser.add_argument("--coeff1-index", type=int, default=8)
+    # parser.add_argument("--coeff2-index", type=int, default=5)
+    # parser.add_argument("--coeff-varying-index", type=int, default=6)
+    parser.add_argument("--equation", type=str, default=None)  # set to default outside parser, as it is long
+    parser.add_argument("--varying-indices", nargs="+", type=int, default=None)
+    parser.add_argument("--fixed-indices", nargs="*", type=int, default=None)
     parser.add_argument("--hist-bins", type=int, default=1000)
     parser.add_argument("--max-filter-size", type=int, default=3)
     parser.add_argument("--colourmap", type=str, default="gray")
@@ -242,6 +258,7 @@ if __name__ == "__main__":
 
     """
     args = parser.parse_args()
+    args = get_default_equation(args)
 
     os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=" + str(args.threads)
 
