@@ -92,7 +92,7 @@ def main(
         else:
             # either all varying, or a mix of varying a fixed, we can precompute some
             # TODO: we can probably merge this and the above branch
-            partial_varying_coeffs[term_degree] = 0  # np.zeros((args.N,), dtype=np.complex64)
+            partial_varying_coeffs[term_degree] = np.zeros((args.N,), dtype=np.complex64)
             for coeff_part in term.coefficient_parts:
                 if coeff_part.t is not None and coeff_part.t[0] in args.fixed_indices:
                     partial_varying_coeffs[term_degree] += coeff_part.constant * (
