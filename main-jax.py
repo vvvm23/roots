@@ -229,19 +229,30 @@ def main(
     frame_roots_real = frame_roots_real.astype(np.int32)
     frame_roots_imag = frame_roots_imag.astype(np.int32)
 
+    # intensity
     intensities = np.zeros((n_frames, args.hist_bins, args.hist_bins), dtype=np.int32)
     # TODO: any way to vectorise this loop?
     for fi in range(n_frames):
         np.add.at(intensities[fi], (frame_roots_real[fi], frame_roots_imag[fi]), 1)
+    intensities = intensities / intensities.max()
 
-    # TODO: how to deal with hues based on t?
-    # hues_complex = np.ones((args.hist_bins, args.hist_bins), dtype=np.complex64)
-    # for t_hue in ts.values():
-    #     np.add.at(hues_complex, (frame_roots_real, frame_roots_imag), t_hue)
+    upweight = 10.0
+    threshold = 0.1
+    intensities *= np.maximum(0.0, upweight - upweight * intensities / threshold) + 1
+    intensities = scipy.ndimage.maximum_filter(intensities, size=(1, args.max_filter_size, args.max_filter_size))
 
-    # saturation = 0.5
+    # hue
+    # TODO: how to make this more efficient?
+    hues_complex = np.ones((n_frames, args.hist_bins, args.hist_bins), dtype=np.complex64)
+    for fi in tqdm.tqdm(range(n_frames)):
+        for t_hue in ts.values():
+            for i, hue_complex in enumerate(t_hue):
+                np.add.at(hues_complex[fi], (frame_roots_real[fi, i], frame_roots_imag[fi, i]), hue_complex)
 
-    hists = intensities / intensities.max()
+    hues = (np.angle(hues_complex) + np.pi) / (2 * np.pi)
+    saturation = np.full((n_frames, args.hist_bins, args.hist_bins), 1.0)
+
+    hists = colors.hsv_to_rgb(np.stack([hues, saturation, intensities], axis=-1))
 
     # hists = []
     # x_min, x_max = np.min([np.min(roots.real) for roots in frame_roots]), np.max(
@@ -268,17 +279,12 @@ def main(
     # hists = np.array(hists)
     # hists = hists / hists.max()
 
-    upweight = 10.0
-    threshold = 0.1
-    hists *= np.maximum(0.0, upweight - upweight * hists / threshold) + 1
-
-    hists = scipy.ndimage.maximum_filter(hists, size=(1, args.max_filter_size, args.max_filter_size))
-
     fig, ax = plt.subplots(figsize=(4, 4))
     fig.subplots_adjust(left=0, bottom=0, right=1, top=1, wspace=None, hspace=None)
     fig.set_size_inches(4, 4, True)
     ax.set_axis_off()
-    im = plt.imshow(hists[0], cmap=args.colourmap, origin="lower")
+    # im = plt.imshow(hists[0], cmap=args.colourmap, origin="lower")
+    im = plt.imshow(hists[0], origin="lower")
 
     def animate(i):
         im.set_data(hists[i])
