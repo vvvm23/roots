@@ -8,35 +8,6 @@ import tqdm
 def get_complex_at_angle(angle):
     return math.cos(angle) + 1j * math.sin(angle)
 
-
-tv = get_complex_at_angle(math.pi / 3)
-
-domain = [-4, 4]
-
-
-# 1 + 2x + x^2 = (x+1)(x+1)
-# roots are -1 with multiplicity 2
-# degree = 2
-# coefficients = np.zeros((degree + 1,), dtype=np.complex64)
-# coefficients[0] = 1
-# coefficients[1] = tv
-# coefficients[2] = tv * tv
-
-
-def resolve_polynomial(coefficients, roots):
-    print(f"coefficients => {coefficients}")
-    for r in roots:
-        # polyval is a different (old) api and so needs coefficients reversed
-        if not (domain[0] <= np.absolute(r) <= domain[1]):
-            # outside solution domain, but would be better to just not compute them
-            continue
-        result = np.polyval(coefficients[::-1], r)
-        print(f"{r} => {result}")
-
-all_roots = [] 
-
-# overwrite coefficients with whatever
-
 # polynomial with degree 11
 degree = 11
 coefficients = np.zeros((degree + 1,), dtype=np.complex64)
@@ -45,8 +16,13 @@ coefficients = np.zeros((degree + 1,), dtype=np.complex64)
 coefficients[11] = 1
 coefficients[10] = -1
 
+# number of particles
 N = 10000
-n_frames = 24*5
+
+# length of clip in seconds
+length = 5
+framerate = 24
+n_frames = int(length*framerate)
 
 t1s = np.array([get_complex_at_angle(2*math.pi*random.random()) for _ in range(N)])
 t2s = np.array([get_complex_at_angle(2*math.pi*random.random()) for _ in range(N)])
@@ -86,11 +62,6 @@ all_frames = np.concatenate(frames, axis=0)
 x_min, x_max = np.min(all_frames.real), np.max(all_frames.real)
 y_min, y_max = np.min(all_frames.imag), np.max(all_frames.imag)
 
-#x_min *= 0.8
-#x_max *= 0.8
-#y_min *= 0.8
-#y_max *= 0.8
-
 hists = []
 for frame in frames:
     hist, *_ = np.histogram2d(frame.real, frame.imag, bins=200, range=[[x_min, x_max], [y_min, y_max]])
@@ -105,8 +76,6 @@ im = plt.imshow(hists[0], cmap='gray', origin='lower')
 def animate(i):
     im.set_data(hists[i])
 
-anim = animation.FuncAnimation(fig, animate, frames=len(hists), interval=int(1000 / 24), blit=False)
-#FFwriter = animation.FFMpegWriter(fps=24, bitrate=8_000_000)
-#anim.save('animation.mp4', writer=FFwriter, dpi=800)
+anim = animation.FuncAnimation(fig, animate, frames=len(hists), interval=int(1000 / framerate), blit=False)
 anim.save('animation.gif', dpi=300)
 
