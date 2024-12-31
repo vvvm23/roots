@@ -22,6 +22,8 @@ My explanation of what is going on:
 - This yields at most `n` complex roots for each of the `N` particles, which can have real components plotted on the x-axis and imaginary components on the y-axis.
 - Repeating this process for each frame yields the animation.
 
+Colouring the animation could be implemented in many ways, but so far we just support simple colour-mapping (aka Matplotlib's `cmap`) and another method which sums the fixed scalars at a given point, computes the angle of the resulting complex number, and uses that to determine the hue at a given point.
+
 The root finding is implemented in Jax and makes uses of the `shard_map` (or "shmap") parallelism API for calculating roots across many processes. Unfortunately, certain operations are not supported on Jax with a GPU backend, so we do all computation on CPU.
 
 ### Usage
@@ -42,7 +44,7 @@ options:
   --length LENGTH       number of frames (default: 5.0)
   --seed SEED           random seed (default: 12648430)
   --output-path OUTPUT_PATH
-                        output path (default: animation-1735635413.9847538.mp4)
+                        output path (default: animation-{date}.{time}.mp4)
   --disable-cache       disable compilation cache (default: False)
   --equation EQUATION   string representation of equation to plot.
   --varying-indices VARYING_INDICES [VARYING_INDICES ...]
