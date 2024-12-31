@@ -1,3 +1,7 @@
+"""
+This script is exploring differences between numpy polyroot, jax roots, and my
+own jax polyroot.
+"""
 import jax
 import math
 import numpy as np
