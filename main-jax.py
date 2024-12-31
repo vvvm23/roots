@@ -226,6 +226,21 @@ if __name__ == "__main__":
     parser.add_argument("--max-filter-size", type=int, default=3)
     parser.add_argument("--colourmap", type=str, default="gray")
     # TODO: add way to serialize the polynomial so we don't have to hardcode one
+    """
+    kinda like
+    \[
+        x^11
+        - x^10
+        + (30j[0]^2 -30[0] - 30) x^8
+        + (-30[1]^5 - 30j[1]^3 + 30j[1]^2 - 30j[1] + 30) x^6
+        + (30j[2]^2 + 30j[2] - 30) x^5
+    \]
+
+    where x is the roots
+    [a] is the ath coefficient, specified by coeff-index or varying-coeff-index
+    j is sqrt(-1)
+
+    """
     args = parser.parse_args()
 
     os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=" + str(args.threads)
