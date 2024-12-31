@@ -1,4 +1,5 @@
 import argparse
+import colorsys
 import math
 import os
 import time
@@ -6,6 +7,7 @@ import time
 import jax
 import jax.numpy as jnp
 import matplotlib.animation as animation
+import matplotlib.colors as colors
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy
@@ -186,49 +188,91 @@ def main(
             varying_coeffs,
         )
 
-        # TODO: we filter out zeros outside jit, is there a way to do this inside?
         roots = np.asarray(roots)
-        roots = roots[~np.isclose(roots, 0.0 + 0.0j, atol=1e-4, rtol=1e-4)]
-        roots = np.unique(roots)
-        roots = np.ascontiguousarray(roots)
+
+        # TODO: we filter out zeros outside jit, is there a way to do this inside?
+        # is_close = np.isclose(roots, 0.0 + 0.0j, atol=1e-4, rtol=1e-4)
+        # is_close_batch = np.all(is_close, axis=-1)
+        # roots = roots[~is_close]
+
+        # roots = np.unique(roots)
+        # roots = np.ascontiguousarray(roots)
 
         frame_roots.append(roots)
 
     end_time = time.time()
     print(f"Took {end_time - start_time} seconds to generate all roots")
 
-    hists = []
-    x_min, x_max = np.min([np.min(roots.real) for roots in frame_roots]), np.max(
-        [np.max(roots.real) for roots in frame_roots]
-    )
-    y_min, y_max = np.min([np.min(roots.imag) for roots in frame_roots]), np.max(
-        [np.max(roots.imag) for roots in frame_roots]
-    )
+    frame_roots = np.stack(frame_roots, axis=0)
+    frame_roots_real = frame_roots.real
+    frame_roots_imag = frame_roots.imag
 
-    # TODO: parallelise this too
-    start_time = time.time()
-    for roots in tqdm.tqdm(frame_roots):
-        hist = jit_roots_to_histogram(
-            roots.real.astype(np.float64),
-            roots.imag.astype(np.float64),
-            bins=args.hist_bins,
-            x_min=x_min,
-            x_max=x_max,
-            y_min=y_min,
-            y_max=y_max,
-        )
-        hists.append(hist)
+    roots_min_x, roots_max_x = np.min(frame_roots_real), np.max(frame_roots_real)
+    roots_min_y, roots_max_y = np.min(frame_roots_imag), np.max(frame_roots_imag)
 
-    hists = np.array(hists)
-    hists = hists / hists.max()
+    # thinking through colour step by step..
+    # TODO: jaxify the colouring?
+    # - scale up x and y to fit inside a [hist_bins, hist_bins] resolution window (change name later)
+    # - cast to int
+    # - use these as scatter add indices into an intensity bucket
+    # - normalise the intensity buckets
+
+    # scale along both axes by the same size, taking the larger of the two
+    roots_diff_x, roots_diff_y = roots_max_x - roots_min_x, roots_max_y - roots_min_y
+    if roots_diff_x < roots_diff_y:
+        frame_roots_real = (frame_roots_real - roots_min_y) / roots_diff_y * (args.hist_bins - 1)
+        frame_roots_imag = (frame_roots_imag - roots_min_y) / roots_diff_y * (args.hist_bins - 1)
+    else:
+        frame_roots_real = (frame_roots_real - roots_min_x) / roots_diff_x * (args.hist_bins - 1)
+        frame_roots_imag = (frame_roots_imag - roots_min_x) / roots_diff_x * (args.hist_bins - 1)
+
+    frame_roots_real = frame_roots_real.astype(np.int32)
+    frame_roots_imag = frame_roots_imag.astype(np.int32)
+
+    intensities = np.zeros((n_frames, args.hist_bins, args.hist_bins), dtype=np.int32)
+    # TODO: any way to vectorise this loop?
+    for fi in range(n_frames):
+        np.add.at(intensities[fi], (frame_roots_real[fi], frame_roots_imag[fi]), 1)
+
+    # TODO: how to deal with hues based on t?
+    # hues_complex = np.ones((args.hist_bins, args.hist_bins), dtype=np.complex64)
+    # for t_hue in ts.values():
+    #     np.add.at(hues_complex, (frame_roots_real, frame_roots_imag), t_hue)
+
+    # saturation = 0.5
+
+    hists = intensities / intensities.max()
+
+    # hists = []
+    # x_min, x_max = np.min([np.min(roots.real) for roots in frame_roots]), np.max(
+    #     [np.max(roots.real) for roots in frame_roots]
+    # )
+    # y_min, y_max = np.min([np.min(roots.imag) for roots in frame_roots]), np.max(
+    #     [np.max(roots.imag) for roots in frame_roots]
+    # )
+
+    # # TODO: parallelise this too
+    # start_time = time.time()
+    # for roots in tqdm.tqdm(frame_roots):
+    #     hist = jit_roots_to_histogram(
+    #         roots.real.astype(np.float64),
+    #         roots.imag.astype(np.float64),
+    #         bins=args.hist_bins,
+    #         x_min=x_min,
+    #         x_max=x_max,
+    #         y_min=y_min,
+    #         y_max=y_max,
+    #     )
+    #     hists.append(hist)
+
+    # hists = np.array(hists)
+    # hists = hists / hists.max()
 
     upweight = 10.0
     threshold = 0.1
     hists *= np.maximum(0.0, upweight - upweight * hists / threshold) + 1
 
     hists = scipy.ndimage.maximum_filter(hists, size=(1, args.max_filter_size, args.max_filter_size))
-    end_time = time.time()
-    print(f"Took {end_time - start_time} seconds to generate all histograms")
 
     fig, ax = plt.subplots(figsize=(4, 4))
     fig.subplots_adjust(left=0, bottom=0, right=1, top=1, wspace=None, hspace=None)
@@ -244,12 +288,24 @@ def main(
     anim.save(args.output_path, writer=FFwriter)
 
 
-
 FUN_EQUATIONS = [
-    ("x^11 - x^10 + (30j[0]^2 -30[0] - 30) x^8 + (-30[1]^5 - 30j[1]^3 + 30j[1]^2 - 30j[1] + 30) x^6 + (30j[2]^2 + 30j[2] - 30) x^5", (1,), (0, 2)),
-    ("x^24 + (-0.1j) x^17 + (10j[1] - 10) x^16 + (-15) x^7 + (15j[0]^5 - 15[0]^4 - 15[0]^2 - 15j) x^10 + (10j[1]^6 + 10j[1]^5 - 10j[1]^4 + 10j[1]^3 - 10[1]^2 + 10j[1] + 10j) x^1 + (1.5j) x^0", (0,), (1,)),
-    ("x^24 + (-0.1j) x^17 + x^14 + (-10j[0]^6 + 10j[0]^5 + 10j[0]^4 - 10j[0]^3 + 10j[0]^2 - 10j[0] - 10j) x^11 + (10j[1]^8 - 10j[1]^4 + 10[1]^2 + 10[1] - 10j) x^4 + (-10j[1] - 10j) x^9 + (-50 - 0.1j) x^7 + (5j) x^0", (0,), (1,))
+    (
+        "x^11 - x^10 + (30j[0]^2 -30[0] - 30) x^8 + (-30[1]^5 - 30j[1]^3 + 30j[1]^2 - 30j[1] + 30) x^6 + (30j[2]^2 + 30j[2] - 30) x^5",
+        (1,),
+        (0, 2),
+    ),
+    (
+        "x^24 + (-0.1j) x^17 + (10j[1] - 10) x^16 + (-15) x^7 + (15j[0]^5 - 15[0]^4 - 15[0]^2 - 15j) x^10 + (10j[1]^6 + 10j[1]^5 - 10j[1]^4 + 10j[1]^3 - 10[1]^2 + 10j[1] + 10j) x^1 + (1.5j) x^0",
+        (0,),
+        (1,),
+    ),
+    (
+        "x^24 + (-0.1j) x^17 + x^14 + (-10j[0]^6 + 10j[0]^5 + 10j[0]^4 - 10j[0]^3 + 10j[0]^2 - 10j[0] - 10j) x^11 + (10j[1]^8 - 10j[1]^4 + 10[1]^2 + 10[1] - 10j) x^4 + (-10j[1] - 10j) x^9 + (-50 - 0.1j) x^7 + (5j) x^0",
+        (0,),
+        (1,),
+    ),
 ]
+
 
 def get_preset_equation(args):
     if args.preset_equation is None and args.equation is None:
@@ -259,6 +315,7 @@ def get_preset_equation(args):
         args.equation, args.varying_indices, args.fixed_indices = FUN_EQUATIONS[args.preset_equation]
 
     return args
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -277,7 +334,7 @@ if __name__ == "__main__":
     parser.add_argument("--colourmap", type=str, default="gray")
     parser.add_argument("--preset-equation", type=int, default=None)
     args = parser.parse_args()
-    
+
     args = get_preset_equation(args)
 
     os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=" + str(args.threads)
