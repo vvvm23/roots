@@ -1,5 +1,7 @@
 # Roots of High-degree Polynomials Visualisation
 
+https://github.com/user-attachments/assets/4ea02bf0-57c1-4661-a799-bf9e19f520c1
+
 Visualisations of complex roots of n-th degree polynomials written in Python with Jax and Matplotlib.
 
 This is inspired by:
