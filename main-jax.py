@@ -225,10 +225,12 @@ def main(
         hists.append(hist)
 
     hists = np.array(hists)
+    hists = hists / hists.max()
 
-    upweight = 2.0
-    threshold = 0.5
+    upweight = 10.0
+    threshold = 0.1
     hists *= np.maximum(0.0, upweight - upweight * hists / threshold) + 1
+
     hists = scipy.ndimage.maximum_filter(hists, size=(1, args.max_filter_size, args.max_filter_size))
     end_time = time.time()
     print(f"Took {end_time - start_time} seconds to generate all histograms")
@@ -247,14 +249,21 @@ def main(
     anim.save(args.output_path, writer=FFwriter)
 
 
-def get_default_equation(args):
+
+FUN_EQUATIONS = [
+    ("x^11 - x^10 + (30j[0]^2 -30[0] - 30) x^8 + (-30[1]^5 - 30j[1]^3 + 30j[1]^2 - 30j[1] + 30) x^6 + (30j[2]^2 + 30j[2] - 30) x^5", (1,), (0, 2)),
+    ("x^24 + (-0.1j) x^17 + (10j[1] - 10) x^16 + (-15) x^7 + (15j[0]^5 - 15[0]^4 - 15[0]^2 - 15j) x^10 + (10j[1]^6 + 10j[1]^5 - 10j[1]^4 + 10j[1]^3 - 10[1]^2 + 10j[1] + 10j) x^1 + (1.5j) x^0", (0,), (1,)),
+    ("x^24 + (-0.1j) x^17 + x^14 + (-10j[0]^6 + 10j[0]^5 + 10j[0]^4 - 10j[0]^3 + 10j[0]^2 - 10j[0] - 10j) x^11 + (10j[1]^8 - 10j[1]^4 + 10[1]^2 + 10[1] - 10j) x^4 + (-10j[1] - 10j) x^9 + (-50 - 0.1j) x^7 + (5j) x^0", (0,), (1,))
+]
+
+def get_preset_equation(args):
+    if args.preset_equation is None and args.equation is None:
+        args.preset_equation = 0
+
     if args.equation is None:
-        args.equation = "x^11 - x^10 + (30j[0]^2 -30[0] - 30) x^8 + (-30[1]^5 - 30j[1]^3 + 30j[1]^2 - 30j[1] + 30) x^6 + (30j[2]^2 + 30j[2] - 30) x^5"
-        args.fixed_indices = [0, 2]
-        args.varying_indices = [1]
+        args.equation, args.varying_indices, args.fixed_indices = FUN_EQUATIONS[args.preset_equation]
 
     return args
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -271,8 +280,10 @@ if __name__ == "__main__":
     parser.add_argument("--hist-bins", type=int, default=1000)
     parser.add_argument("--max-filter-size", type=int, default=3)
     parser.add_argument("--colourmap", type=str, default="gray")
+    parser.add_argument("--preset-equation", type=int, default=None)
     args = parser.parse_args()
-    args = get_default_equation(args)
+    
+    args = get_preset_equation(args)
 
     os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=" + str(args.threads)
 

@@ -2,22 +2,6 @@ import ast
 import re
 from typing import NamedTuple, Sequence, Tuple
 
-"""
-below is an example input:
-    \[
-        x^11
-        - x^10
-        + (30j[0]^2 -30[0] - 30) x^8
-        + (-30[1]^5 - 30j[1]^3 + 30j[1]^2 - 30j[1] + 30) x^6
-        + (30j[2]^2 + 30j[2] - 30) x^5
-    \]
-
-will assign a flattened version to a string for simplicity.
-
-We want to parse this into the below data structures:
-"""
-
-
 class Coefficient(NamedTuple):
     constant: float  # part to multiply the t by, if no t then multiply by 1
     t: Tuple[int, int] | None  # index into and power of the varying or static t
