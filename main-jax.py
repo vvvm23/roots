@@ -180,11 +180,6 @@ def main(
             for i, v in partial_varying_coeffs.items()
         }
 
-        # cool settings
-        # original (8, 5) 6
-        # (8, 2) 6
-        # (8, 2) 7
-        # (8, 2) 4
         roots = shmap_roots_one_frame(
             coefficients,
             fixed_coeffs,
@@ -272,7 +267,7 @@ if __name__ == "__main__":
     parser.add_argument("--framerate", type=int, default=24, help="frames per second")
     parser.add_argument("--length", type=float, default=5.0, help="number of frames")
     parser.add_argument("--seed", type=int, default=0xC0FFEE, help="random seed")
-    parser.add_argument("--output-path", type=str, default="animation.mp4", help="output path")
+    parser.add_argument("--output-path", type=str, default=f"animation-{time.time()}.mp4", help="output path")
     parser.add_argument("--disable-cache", action="store_true", help="disable compilation cache")
     parser.add_argument("--equation", type=str, default=None)  # set to default outside parser, as it is long
     parser.add_argument("--varying-indices", nargs="+", type=int, default=None)
