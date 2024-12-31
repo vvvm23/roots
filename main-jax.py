@@ -94,7 +94,6 @@ def roots_to_histogram(
 
 def main(
     args: argparse.Namespace,
-    # TODO: string for passing in the coefficients and such
 ):
     devices = jax.devices("cpu")
     n_devices = len(devices)
@@ -124,21 +123,15 @@ def main(
 
     jit_roots_to_histogram = jax.jit(roots_to_histogram, static_argnums=(2,), backend="cpu")
 
+    in_specs = (
+        *[None] * 4,
+        P("data"),
+        P("data"),
+    )
     shmap_roots_one_frame = shard_map(
         roots_one_frame,
         mesh=mesh,
-        in_specs=(
-            None,
-            None,
-            None,
-            None,
-            P(
-                "data",
-            ),
-            P(
-                "data",
-            ),
-        ),
+        in_specs=in_specs,
         out_specs=P("data"),
     )
 
@@ -215,8 +208,6 @@ def main(
     anim = animation.FuncAnimation(fig, animate, frames=len(hists), interval=int(1000 / args.framerate), blit=False)
     FFwriter = animation.FFMpegWriter(fps=args.framerate)
     anim.save(args.output_path, writer=FFwriter)
-    # anim.save('animation.gif', dpi=300)
-    # plt.show()
 
 
 if __name__ == "__main__":
