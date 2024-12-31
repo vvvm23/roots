@@ -45,7 +45,7 @@ coefficients = np.zeros((degree + 1,), dtype=np.complex64)
 coefficients[11] = 1
 coefficients[10] = -1
 
-N = 1000
+N = 10000
 n_frames = 24*5
 
 t1s = np.array([get_complex_at_angle(2*math.pi*random.random()) for _ in range(N)])
@@ -71,10 +71,10 @@ for fi in tqdm.tqdm(range(n_frames)):
         for r in roots:
             if np.isclose(r, 0+0j, atol=1e-4, rtol=1e-4):
                 continue
-            if not (domain[0] <= np.absolute(r) <= domain[1]):
-                continue
-            if not np.isclose(np.polyval(coefficients[::-1], r), 0, atol=1e-4, rtol=1e-4):
-                continue
+            #if not (domain[0] <= np.absolute(r) <= domain[1]):
+            #    continue
+            #if not np.isclose(np.polyval(coefficients[::-1], r), 0, atol=1e-4, rtol=1e-4):
+            #    continue
             
             c_frame.append(r)
 
@@ -86,10 +86,10 @@ all_frames = np.concatenate(frames, axis=0)
 x_min, x_max = np.min(all_frames.real), np.max(all_frames.real)
 y_min, y_max = np.min(all_frames.imag), np.max(all_frames.imag)
 
-x_min *= 0.8
-x_max *= 0.8
-y_min *= 0.8
-y_max *= 0.8
+#x_min *= 0.8
+#x_max *= 0.8
+#y_min *= 0.8
+#y_max *= 0.8
 
 hists = []
 for frame in frames:
@@ -98,14 +98,15 @@ for frame in frames:
 
 fig, ax = plt.subplots(figsize = (8,8))
 fig.subplots_adjust(left=0, bottom=0, right=1, top=1, wspace=None, hspace=None)
-fig.set_size_inches(6, 6, True)
+fig.set_size_inches(4, 4, True)
 ax.set_axis_off()
 im = plt.imshow(hists[0], cmap='gray', origin='lower')
 
 def animate(i):
     im.set_data(hists[i])
 
-anim = animation.FuncAnimation(fig, animate, frames=len(hists), interval=100, blit=False)
-FFwriter = animation.FFMpegWriter(fps=24, bitrate=8_000_000)
-anim.save('animation.mp4', writer=FFwriter, dpi=800)
+anim = animation.FuncAnimation(fig, animate, frames=len(hists), interval=int(1000 / 24), blit=False)
+#FFwriter = animation.FFMpegWriter(fps=24, bitrate=8_000_000)
+#anim.save('animation.mp4', writer=FFwriter, dpi=800)
+anim.save('animation.gif', dpi=300)
 
