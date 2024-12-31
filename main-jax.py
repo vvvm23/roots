@@ -1,24 +1,22 @@
-import os
-import scipy.ndimage
 import argparse
-
-import scipy
-from jax.experimental.shard_map import shard_map
-import jax
-import tqdm
+import math
+import os
 import time
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
 from functools import partial
+from typing import Sequence
+
+import jax
 import jax.numpy as jnp
 import jax.random as jr
-from jax.sharding import PartitionSpec as P
-import math
-
+import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
+import scipy
+import scipy.ndimage
+import tqdm
+from jax.experimental.shard_map import shard_map
+from jax.sharding import PartitionSpec as P
 
-from typing import Sequence
 
 def complex_at_angle(x):
     if isinstance(x, np.ndarray):
@@ -28,20 +26,22 @@ def complex_at_angle(x):
 
     return math.cos(x) + 1j * math.sin(x)
 
+
 # TODO: can this be... faster?
 def jax_polyroots(x):
     n = len(x) - 1
-    mat = jnp.diag(jnp.ones((n-1,), dtype=x.dtype), k=-1)
-    mat = mat.at[:, -1].subtract(x[:-1]/x[-1])
-    r = jnp.linalg.eigvals(mat[::-1,::-1])
+    mat = jnp.diag(jnp.ones((n - 1,), dtype=x.dtype), k=-1)
+    mat = mat.at[:, -1].subtract(x[:-1] / x[-1])
+    r = jnp.linalg.eigvals(mat[::-1, ::-1])
     return jnp.sort(r)
+
 
 def roots_one_frame(
     coefficients: jax.Array,
     coefficient_overrides_index: Sequence[int],
     coefficient_varying_index: int,
     coefficient_varying: jax.Array,
-    *coefficient_overrides: Sequence[jax.Array], 
+    *coefficient_overrides: Sequence[jax.Array],
 ):
     assert coefficient_overrides_index is not None, "specify the coefficient index to override"
     assert coefficient_varying_index is not None, "specify the coefficient index to vary"
@@ -67,6 +67,7 @@ def roots_one_frame(
 
     return roots
 
+
 def roots_to_histogram(
     roots_real: jax.Array,
     roots_imag: jax.Array,
@@ -80,20 +81,24 @@ def roots_to_histogram(
         return jnp.histogram2d(
             roots_real,
             roots_imag,
-            bins=(jnp.linspace(x_min, x_max, bins+1), jnp.linspace(y_min, y_max, bins+1)),
+            bins=(
+                jnp.linspace(x_min, x_max, bins + 1),
+                jnp.linspace(y_min, y_max, bins + 1),
+            ),
             range=jnp.array([[x_min, x_max], [y_min, y_max]]),
             density=False,
         )[0]
-    
+
     return histogram_fn(roots_real, roots_imag)
+
 
 def main(
     args: argparse.Namespace,
     # TODO: string for passing in the coefficients and such
 ):
-    devices = jax.devices('cpu')
+    devices = jax.devices("cpu")
     n_devices = len(devices)
-    mesh = jax.make_mesh((n_devices,), ('data',))
+    mesh = jax.make_mesh((n_devices,), ("data",))
     n_frames = int(args.length * args.framerate)
 
     degree = 11
@@ -117,16 +122,24 @@ def main(
 
     coefficients = jnp.asarray(coefficients)
 
-    jit_roots_to_histogram = jax.jit(roots_to_histogram, static_argnums=(2,), backend='cpu')
+    jit_roots_to_histogram = jax.jit(roots_to_histogram, static_argnums=(2,), backend="cpu")
 
     shmap_roots_one_frame = shard_map(
         roots_one_frame,
         mesh=mesh,
         in_specs=(
-            None, None, None, None,
-            P('data',), P('data',)
+            None,
+            None,
+            None,
+            None,
+            P(
+                "data",
+            ),
+            P(
+                "data",
+            ),
         ),
-        out_specs=P('data')
+        out_specs=P("data"),
     )
 
     start_time = time.time()
@@ -143,12 +156,12 @@ def main(
         # (8, 2) 7
         # (8, 2) 4
         roots = shmap_roots_one_frame(
-            coefficients, 
+            coefficients,
             (args.coeff1_index, args.coeff2_index),
             args.coeff_varying_index,
-            coeff_varying, 
-            coeffs1, 
-            coeffs2, 
+            coeff_varying,
+            coeffs1,
+            coeffs2,
         )
 
         # TODO: we filter out zeros outside jit, is there a way to do this inside?
@@ -160,46 +173,48 @@ def main(
         frame_roots.append(roots)
 
     end_time = time.time()
-    print(f'Took {end_time - start_time} seconds to generate all roots')
+    print(f"Took {end_time - start_time} seconds to generate all roots")
 
     hists = []
-    x_min, x_max = np.min([np.min(roots.real) for roots in frame_roots]), np.max([np.max(roots.real) for roots in frame_roots])
-    y_min, y_max = np.min([np.min(roots.imag) for roots in frame_roots]), np.max([np.max(roots.imag) for roots in frame_roots])
-
+    x_min, x_max = np.min([np.min(roots.real) for roots in frame_roots]), np.max(
+        [np.max(roots.real) for roots in frame_roots]
+    )
+    y_min, y_max = np.min([np.min(roots.imag) for roots in frame_roots]), np.max(
+        [np.max(roots.imag) for roots in frame_roots]
+    )
 
     # TODO: parallelise this too
     start_time = time.time()
     for roots in tqdm.tqdm(frame_roots):
         hist = jit_roots_to_histogram(
-            roots.real.astype(np.float64), 
+            roots.real.astype(np.float64),
             roots.imag.astype(np.float64),
             bins=args.hist_bins,
-            x_min=x_min, x_max=x_max,
-            y_min=y_min, y_max=y_max,
+            x_min=x_min,
+            x_max=x_max,
+            y_min=y_min,
+            y_max=y_max,
         )
         hists.append(hist)
 
     hists = np.array(hists)
 
-    hists = scipy.ndimage.maximum_filter(
-        hists,
-        size=(1, args.max_filter_size, args.max_filter_size)
-    )
+    hists = scipy.ndimage.maximum_filter(hists, size=(1, args.max_filter_size, args.max_filter_size))
     end_time = time.time()
-    print(f'Took {end_time - start_time} seconds to generate all histograms')
-    
-    fig, ax = plt.subplots(figsize = (4,4))
+    print(f"Took {end_time - start_time} seconds to generate all histograms")
+
+    fig, ax = plt.subplots(figsize=(4, 4))
     fig.subplots_adjust(left=0, bottom=0, right=1, top=1, wspace=None, hspace=None)
     fig.set_size_inches(4, 4, True)
     ax.set_axis_off()
-    im = plt.imshow(hists[0], cmap=args.colourmap, origin='lower')
+    im = plt.imshow(hists[0], cmap=args.colourmap, origin="lower")
 
     def animate(i):
         im.set_data(hists[i])
 
     anim = animation.FuncAnimation(fig, animate, frames=len(hists), interval=int(1000 / args.framerate), blit=False)
     FFwriter = animation.FFMpegWriter(fps=args.framerate)
-    anim.save(args.output_path, writer = FFwriter)
+    anim.save(args.output_path, writer=FFwriter)
     # anim.save('animation.gif', dpi=300)
     # plt.show()
 
@@ -222,7 +237,7 @@ if __name__ == "__main__":
     # TODO: add way to serialize the polynomial so we don't have to hardcode one
     args = parser.parse_args()
 
-    os.environ["XLA_FLAGS"] = '--xla_force_host_platform_device_count=' + str(args.threads)
+    os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=" + str(args.threads)
 
     jax.config.update("jax_platform_name", "cpu")
     jax.config.update("jax_enable_x64", True)
