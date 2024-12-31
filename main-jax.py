@@ -97,33 +97,64 @@ def roots_to_histogram(
 def main(
     args: argparse.Namespace,
 ):
+    equation = string_to_equation(args.equation)
+
     devices = jax.devices("cpu")
     n_devices = len(devices)
     mesh = jax.make_mesh((n_devices,), ("data",))
     n_frames = int(args.length * args.framerate)
 
-    degree = 11
+    # degree = 11
     # TODO: can probably alloc this inside the jit function rather than outside
     # TODO: integrate equation parser
+    degree = max([t.degree for t in equation.terms])
     coefficients = np.zeros((degree + 1,), dtype=np.complex64)
-    coefficients[11] = 1
-    coefficients[10] = -1
 
     rng = np.random.default_rng(args.seed)
-    t1s = rng.random(args.N) * 2 * math.pi
-    t2s = rng.random(args.N) * 2 * math.pi
+    ts = {i: rng.random(args.N) * 2 * math.pi for i in args.fixed_indices}
+    fixed_coeffs = {}
+    partial_varying_coeffs = {}
+    for term in equation.terms:
+        if all([t.t is None for t in term.coefficient_parts]):
+            # if term has a constant coefficient
+            coefficients[term.degree] = term.coefficient_parts[0].constant
+        elif all([t.t[0] in args.fixed_indices for t in term.coefficient_parts]):
+            # if term has all fixed indices, they can be precomputed
+            fixed_coeffs[term.degree] = 0  # np.zeros((args.N,), dtype=np.complex64)
+            for coeff_part in term.coefficient_parts:
+                if coeff_part.t is not None:
+                    fixed_coeffs[term.degree] += coeff_part.constant * ts[coeff_part.t[0]] ** coeff_part.t[1]
+                else:
+                    fixed_coeffs[term.degree] += coeff_part.constant
+        else:
+            # either all varying, or a mix of varying a fixed, we can precompute some
+            # TODO: we can probably merge this and the above branch
+            partial_varying_coeffs[term.degree] = 0  # np.zeros((args.N,), dtype=np.complex64)
+            for coeff_part in term.coefficient_parts:
+                if coeff_part.t is not None and coeff_part.t[0] in args.fixed_indices:
+                    partial_varying_coeffs[term.degree] += coeff_part.constant * ts[coeff_part.t[0]] ** coeff_part.t[1]
+                else:
+                    partial_varying_coeffs[term.degree] += coeff_part.constant
 
-    # project timesteps on unit circle
-    t1s = complex_at_angle(t1s)
-    t2s = complex_at_angle(t2s)
+    # coefficients[11] = 1
+    # coefficients[10] = -1
 
-    coeffs1 = 30j * t1s * t1s - 30 * t1s - 30
-    coeffs2 = 30j * t2s * t2s + 30j * t2s - 30
+    # t1s = rng.random(args.N) * 2 * math.pi
+    # t2s = rng.random(args.N) * 2 * math.pi
 
-    coeffs1 = jnp.asarray(coeffs1)
-    coeffs2 = jnp.asarray(coeffs2)
+    # # project timesteps on unit circle
+    # t1s = complex_at_angle(t1s)
+    # t2s = complex_at_angle(t2s)
+
+    # coeffs1 = 30j * t1s * t1s - 30 * t1s - 30
+    # coeffs2 = 30j * t2s * t2s + 30j * t2s - 30
+
+    # coeffs1 = jnp.asarray(coeffs1)
+    # coeffs2 = jnp.asarray(coeffs2)
 
     coefficients = jnp.asarray(coefficients)
+    fixed_coeffs = jax.tree_util.tree_map(jnp.asarray, fixed_coeffs)
+    partial_varying_coeffs = jax.tree_util.tree_map(jnp.asarray, partial_varying_coeffs)
 
     jit_roots_to_histogram = jax.jit(roots_to_histogram, static_argnums=(2,), backend="cpu")
 
