@@ -2,13 +2,13 @@ import ast
 import re
 from typing import NamedTuple, Sequence, Tuple
 
+
 class Coefficient(NamedTuple):
     constant: float  # part to multiply the t by, if no t then multiply by 1
     t: Tuple[int, int] | None  # index into and power of the varying or static t
 
 
 class Term(NamedTuple):
-    degree: int  # degree of this term, aka what x^n it is multiplied with
     coefficient_parts: Sequence[Coefficient]  # list of all parts to the coefficient, together
 
 
@@ -29,17 +29,18 @@ def string_to_equation(equation_string: str) -> Equation:
     parse_coeff_part_re = re.compile(r"(?P<constant>[+-]?\d+\.?\d*j?)?(?:\[(?P<index>\d+)\])?(?:\^(?P<power>\d+))?$")
 
     # TODO: make this a dictionary?
-    equation = Equation(terms=[])
+    equation = Equation(terms={})
 
     for term_str in all_term_str:
         maybe_leading_sign, term_degree = find_degree_re.findall(term_str)[0]
+        term_degree = int(term_degree)
         maybe_leading_sign = re.sub(r"\s", "", maybe_leading_sign)
 
         leading_sign = 1
         if maybe_leading_sign == "-":
             leading_sign = -1
 
-        term = Term(degree=int(term_degree), coefficient_parts=[])
+        term = Term(coefficient_parts=[])
         coeff_parts = find_coeff_parts_re.findall(term_str)
 
         if len(coeff_parts) == 0:
@@ -58,15 +59,14 @@ def string_to_equation(equation_string: str) -> Equation:
 
             term.coefficient_parts.append(Coefficient(constant=leading_sign * constant, t=(index, power)))
 
-        equation.terms.append(term)
+        equation.terms[term_degree] = term
 
     return equation
 
 
 if __name__ == "__main__":
-    equation_string = "x^11 - x^10 + (30j[0]^2 -30[0] - 30) x^8 + (-30[1]^5 - 30j[1]^3 + 30j[1]^2 - 30j[1] + 30) x^6 + (30j[2]^2 + 30j[2] - 30) x^5"
     equation_string = "x^19 - (0.1) x^17 + (10j[0]^6 - 10j[0]^5 + 10j[0]^4 - 10j[0]^3 - 10[0]^2 + 10j[0] - 10) x^6 + (10[2]^6 + 10[2]^5 - 10[2]^4 - 10[2]^3 + 10j[2]^2 + 10j[2] + 10) x^2 + (10j[1] - 10) x^0"
     print(equation_string)
     print()
     equation = string_to_equation(equation_string)
-    print("\n".join(map(str, equation.terms)))
+    print("\n".join(map(str, equation.terms.items())))
