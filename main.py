@@ -242,9 +242,17 @@ if __name__ == "__main__":
     parser.add_argument("--fixed-indices", nargs="*", type=int, default=None)
     parser.add_argument("--resolution", type=int, default=1000, help="resolution of output animation.")
     parser.add_argument("--max-filter-size", type=int, default=3, help="maximum filter size")
-    parser.add_argument("--color-mode", type=str, default="t_fixed_hue", choices=COLOR_MODE_CHOICES, help="color mode to use in output animation")
+    parser.add_argument(
+        "--color-mode",
+        type=str,
+        default="t_fixed_hue",
+        choices=COLOR_MODE_CHOICES,
+        help="color mode to use in output animation",
+    )
     parser.add_argument("--cmap", type=str, default="gray", help="matplotlib colormap to use if color_mode is `cmap`")
-    parser.add_argument("--preset-equation", type=int, default=None, help="use a zero-indexed preset equation, see preset_equations.py")
+    parser.add_argument(
+        "--preset-equation", type=int, default=None, help="use a zero-indexed preset equation, see preset_equations.py"
+    )
     args = parser.parse_args()
 
     args = get_preset_equation(args)
